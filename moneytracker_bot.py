@@ -5,6 +5,7 @@ import json
 import os
 
 from dotenv import load_dotenv
+from email_utils import get_recent_uob_emails
 
 # Load .env locally (optional)
 load_dotenv()
@@ -180,6 +181,37 @@ async def month_category_summary(update: Update, context: ContextTypes.DEFAULT_T
     summary_text += f"\n\n💰 Total month: ${total_month:.2f}"
     await update.message.reply_text(f"🧾 Monthly category summary:\n{summary_text}")
 
+# -------------------- Gmail Sync Command --------------------
+async def sync_emails(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    await update.message.reply_text("🔍 Checking for new UOB transactions...")
+
+    try:
+        transactions = get_recent_uob_emails(5)
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Error fetching Gmail: {e}")
+        return
+
+    if not transactions:
+        await update.message.reply_text("No new UOB transactions found.")
+        return
+
+    added_count = 0
+    for t in transactions:
+        name = t["merchant"]
+        amount = t["amount"]
+        category = "Misc."  # Default category — can be refined later
+        add_expense_to_data(user_id, name, amount, category)
+        added_count += 1
+
+        await update.message.reply_text(
+            f"✅ Added from email:\n💳 *{name}* — ${amount:.2f} ({category}) on {t['date']}",
+            parse_mode="Markdown"
+        )
+
+    await update.message.reply_text(f"🎉 {added_count} transactions added from Gmail!")
+
+
 # -------------------- Main --------------------
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -191,6 +223,8 @@ def main():
     app.add_handler(CommandHandler("week", week_summary))
     app.add_handler(CommandHandler("month", month_daily_summary))
     app.add_handler(CommandHandler("month_category", month_category_summary))
+    app.add_handler(CommandHandler("sync", sync_emails))
+
 
     PORT = int(os.environ.get("PORT", 8443))
     print(f"✅ MoneyTracker Bot is running on port {PORT}...")
