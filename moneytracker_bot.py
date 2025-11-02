@@ -6,29 +6,26 @@ import os
 
 from dotenv import load_dotenv
 
-# Load .env locally (safe to call even if no .env exists)
+# Load .env locally (optional)
 load_dotenv()
 
 # Use environment variable from Render or local .env
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+RENDER_URL = os.getenv("RENDER_URL")  # Your Render subdomain, e.g., https://moneytracker.onrender.com
 
 if not TOKEN:
-    print("⚠️ Warning: TELEGRAM_BOT_TOKEN not found. The bot won't start without it.")
-
+    raise ValueError("❌ TELEGRAM_BOT_TOKEN not found. The bot won't start without it.")
+if not RENDER_URL:
+    raise ValueError("❌ RENDER_URL not set. Add your Render service URL as an environment variable.")
 
 # -------------------- Data storage --------------------
 DATA_FILE = "expenses.json"
-
-# Structure: {user_id: {date_str: [(name, amount, category), ...]}}
 expenses = {}
 
-# Load expenses from file if exists
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r") as f:
         expenses = json.load(f)
-        # JSON stores numbers as float but keys are strings, we may need conversion later
 
-# Categories
 CATEGORIES = ["Food", "Drinks", "Entertainment", "Misc.", "Transport", "Travel", "Housing"]
 
 # -------------------- Helper functions --------------------
@@ -69,7 +66,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/undo - Remove last entry"
     )
 
-# -------------------- Add Expense --------------------
 async def add_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip().split()
@@ -83,10 +79,7 @@ async def add_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Amount must be a number.")
         return
 
-    # Save temporarily in context
     context.user_data['pending_expense'] = (name, amount)
-
-    # Show category buttons
     keyboard = [[InlineKeyboardButton(cat, callback_data=cat)] for cat in CATEGORIES]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(f"Select a category for \"{name} - ${amount:.2f}\":", reply_markup=reply_markup)
@@ -110,7 +103,6 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Recorded: {name} - ${amount:.2f} ({category})\n\n🧾 Today's summary:\n{summary_text}"
     )
 
-# -------------------- Undo --------------------
 async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     today_str = str(date.today())
@@ -125,7 +117,6 @@ async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Removed last entry: {removed[0]} - ${removed[1]:.2f} ({removed[2]})\n\n🧾 Updated summary:\n{summary_text}"
     )
 
-# -------------------- Summaries --------------------
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     today_expenses = get_user_data(user_id)
@@ -150,12 +141,10 @@ async def week_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary_text = "\n".join(lines) + f"\n\n💰 Total week: ${total_week:.2f}"
     await update.message.reply_text(f"🧾 Weekly summary:\n{summary_text}")
 
-# -------------------- Monthly daily totals --------------------
 async def month_daily_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     user_data = expenses.get(user_id, {})
     today = date.today()
-    
     daily_totals = []
     total_month = 0
     for day_str, day_expenses in sorted(user_data.items()):
@@ -164,21 +153,17 @@ async def month_daily_summary(update: Update, context: ContextTypes.DEFAULT_TYPE
             day_total = sum(amount for _, amount, _ in day_expenses)
             daily_totals.append(f"{day_str}: ${day_total:.2f}")
             total_month += day_total
-
     if not daily_totals:
         await update.message.reply_text("No expenses recorded this month.")
         return
-
     summary_text = "\n".join(daily_totals)
     summary_text += f"\n\n💰 Total month: ${total_month:.2f}"
     await update.message.reply_text(f"🧾 Monthly daily summary:\n{summary_text}")
 
-# -------------------- Monthly category summary --------------------
 async def month_category_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     user_data = expenses.get(user_id, {})
     today = date.today()
-
     category_totals = {}
     total_month = 0
     for day_str, day_expenses in user_data.items():
@@ -187,25 +172,16 @@ async def month_category_summary(update: Update, context: ContextTypes.DEFAULT_T
             for _, amount, category in day_expenses:
                 category_totals[category] = category_totals.get(category, 0) + amount
                 total_month += amount
-
     if total_month == 0:
         await update.message.reply_text("No expenses recorded this month.")
         return
-
-    lines = []
-    for cat, amt in category_totals.items():
-        percent = (amt / total_month) * 100
-        lines.append(f"{cat}: ${amt:.2f} ({percent:.1f}%)")
-
+    lines = [f"{cat}: ${amt:.2f} ({(amt/total_month)*100:.1f}%)" for cat, amt in category_totals.items()]
     summary_text = "\n".join(lines)
     summary_text += f"\n\n💰 Total month: ${total_month:.2f}"
     await update.message.reply_text(f"🧾 Monthly category summary:\n{summary_text}")
 
 # -------------------- Main --------------------
 def main():
-    if not TOKEN:
-        print("❌ Bot token missing. Check .env (local) or Render environment variables.")
-        return
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_expense))
@@ -216,8 +192,13 @@ def main():
     app.add_handler(CommandHandler("month", month_daily_summary))
     app.add_handler(CommandHandler("month_category", month_category_summary))
 
-    print("✅ MoneyTracker Bot is running...")
-    app.run_polling()
+    PORT = int(os.environ.get("PORT", 8443))
+    print(f"✅ MoneyTracker Bot is running on port {PORT}...")
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{RENDER_URL}/{TOKEN}"
+    )
 
 if __name__ == "__main__":
     main()
