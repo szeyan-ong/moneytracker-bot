@@ -1,46 +1,23 @@
-from __future__ import print_function
-import os.path
-import pickle
-from google.auth.transport.requests import Request
+import os
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# Gmail API scopes — read-only access
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+def get_gmail_service():
+    # Read secrets from environment variables
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
 
-def authorize_gmail():
-    creds = None
+    if not all([client_id, client_secret, refresh_token]):
+        raise ValueError("❌ Google OAuth credentials not set in environment variables.")
 
-    # token.pickle stores the user’s access and refresh tokens
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as token:
-            creds = pickle.load(token)
-
-    # If there are no valid credentials, log in via browser
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save credentials for next run
-        with open("token.pickle", "wb") as token:
-            pickle.dump(creds, token)
+    creds = Credentials(
+        None,
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        token_uri="https://oauth2.googleapis.com/token"
+    )
 
     service = build("gmail", "v1", credentials=creds)
-    print("✅ Gmail authorization complete.")
     return service
-
-
-if __name__ == "__main__":
-    service = authorize_gmail()
-    results = service.users().messages().list(userId="me", maxResults=5).execute()
-    messages = results.get("messages", [])
-
-    if not messages:
-        print("No messages found.")
-    else:
-        print("Latest message IDs:")
-        for msg in messages:
-            print(msg["id"])
