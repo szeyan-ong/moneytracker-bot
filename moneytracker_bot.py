@@ -231,7 +231,7 @@ def main():
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_url=f"{RENDER_URL}/{TOKEN}"
+        webhook_url=f"{os.environ.get('RENDER_URL')}/{TOKEN}"
     )
 
 if __name__ == "__main__":
